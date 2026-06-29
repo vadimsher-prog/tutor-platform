@@ -59,7 +59,7 @@ export default function DashboardPage() {
         .eq('status', 'completed'),
     ])
 
-    const monthIncome = (monthPayRes.data || []).reduce((s, p) => s + p.amount, 0)
+    const monthIncome = (monthPayRes.data || []).reduce((s: number, p: any) => s + p.amount, 0)
 
     setData({
       todayLessons: (todayRes.data || []) as any,
