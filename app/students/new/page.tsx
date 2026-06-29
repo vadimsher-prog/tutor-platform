@@ -42,7 +42,7 @@ export default function NewStudentPage() {
       trial_price: form.trial_price ? Number(form.trial_price) : null,
       notes: form.notes || null,
       is_active: true,
-    })
+    } as any)
 
     if (err) {
       setError(err.message)

@@ -215,7 +215,7 @@ function AddLessonModal({
       is_trial: form.is_trial,
       notes: form.notes || null,
       google_event_id: null,
-    })
+    } as any)
     onSaved()
   }
 

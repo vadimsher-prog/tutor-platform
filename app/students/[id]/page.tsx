@@ -201,7 +201,7 @@ function ScheduleTab({ studentId, schedules, onRefresh }: { studentId: string; s
     await supabase.from('student_schedules').insert({
       student_id: studentId, day_of_week: Number(form.day_of_week),
       start_time: form.start_time, duration_minutes: Number(form.duration_minutes), is_active: true,
-    })
+    } as any)
     setSaving(false); setShowForm(false)
     setForm({ day_of_week: '0', start_time: '14:00', duration_minutes: '60' })
     onRefresh()
@@ -290,7 +290,7 @@ function AddLessonModal({ studentId, onClose, onSaved }: { studentId: string; on
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true)
     const scheduled_at = new Date(`${form.date}T${form.time}`).toISOString()
-    await supabase.from('lessons').insert({ student_id: studentId, scheduled_at, duration_minutes: Number(form.duration), status: 'scheduled', is_trial: form.is_trial, notes: form.notes || null, google_event_id: null })
+    await supabase.from('lessons').insert({ student_id: studentId, scheduled_at, duration_minutes: Number(form.duration), status: 'scheduled', is_trial: form.is_trial, notes: form.notes || null, google_event_id: null } as any)
     onSaved()
   }
   return (
@@ -322,7 +322,7 @@ function AddPaymentModal({ studentId, student, onClose, onSaved }: { studentId: 
   const [saving, setSaving] = useState(false)
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true)
-    await supabase.from('payments').insert({ student_id: studentId, amount: Number(form.amount), payment_date: form.date, payment_type: student.tariff_type === 'monthly' ? 'monthly' : student.tariff_type === 'package' ? 'package' : 'per_lesson', lesson_id: null, package_id: null, notes: form.notes || null })
+    await supabase.from('payments').insert({ student_id: studentId, amount: Number(form.amount), payment_date: form.date, payment_type: student.tariff_type === 'monthly' ? 'monthly' : student.tariff_type === 'package' ? 'package' : 'per_lesson', lesson_id: null, package_id: null, notes: form.notes || null } as any)
     onSaved()
   }
   return (
@@ -346,7 +346,7 @@ function PackagesTab({ packages, studentId, onRefresh }: { packages: Package[]; 
   const [saving, setSaving] = useState(false)
   async function addPackage(e: React.FormEvent) {
     e.preventDefault(); setSaving(true)
-    await supabase.from('packages').insert({ student_id: studentId, total_lessons: Number(form.total_lessons), used_lessons: 0, price_total: Number(form.price_total), purchase_date: form.purchase_date, expires_at: null, notes: null })
+    await supabase.from('packages').insert({ student_id: studentId, total_lessons: Number(form.total_lessons), used_lessons: 0, price_total: Number(form.price_total), purchase_date: form.purchase_date, expires_at: null, notes: null } as any)
     setShowAdd(false); setSaving(false); onRefresh()
   }
   return (
@@ -393,7 +393,7 @@ function SubscriptionsTab({ subscriptions, studentId, onRefresh }: { subscriptio
   async function addMonth() {
     const amount = prompt('Сумма подписки (₽):')
     if (!amount) return
-    await supabase.from('monthly_subscriptions').insert({ student_id: studentId, month: currentMonth, amount: Number(amount), lessons_count: 0, paid_at: null })
+    await supabase.from('monthly_subscriptions').insert({ student_id: studentId, month: currentMonth, amount: Number(amount), lessons_count: 0, paid_at: null } as any)
     onRefresh()
   }
   return (

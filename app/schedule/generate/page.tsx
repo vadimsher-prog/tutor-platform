@@ -202,7 +202,7 @@ export default function GeneratePage() {
         scheduled_at: `${l.date}T${l.startTime}:00`,
         duration_minutes: l.durationMinutes,
         status: 'scheduled', is_trial: false, google_event_id: null, notes: null,
-      }))
+      })) as any
     )
     if (err) { setError(err.message); setSaving(false); return }
     setSavedCount(toCreate.length); setStep('done'); setSaving(false)

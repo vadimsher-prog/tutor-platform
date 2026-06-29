@@ -179,7 +179,7 @@ function AddPaymentModal({ students, onClose, onSaved }: { students: Student[]; 
       lesson_id: null,
       package_id: null,
       notes: form.notes || null,
-    })
+    } as any)
     onSaved()
   }
 
