@@ -78,9 +78,9 @@ export default function GeneratePage() {
   async function buildPreview() {
     setLoading(true); setError('')
     const [settingsRes, schedulesRes, blockedRes] = await Promise.all([
-      supabase.from('teacher_settings').select('*').limit(1).single(),
-      supabase.from('student_schedules').select('*, students(name)').eq('is_active', true),
-      supabase.from('blocked_slots').select('*'),
+      supabase.from('teacher_settings').select('*').limit(1).single() as any,
+      supabase.from('student_schedules').select('*, students(name)').eq('is_active', true) as any,
+      supabase.from('blocked_slots').select('*') as any,
     ])
     if (!settingsRes.data) {
       setError('Не найдены настройки преподавателя. Зайди в Настройки и сохрани режим работы.')
@@ -106,7 +106,7 @@ export default function GeneratePage() {
     }
 
     const endDateStr = dates[dates.length - 1]
-    const { data: existingLessons } = await supabase.from('lessons')
+    const { data: existingLessons } = await (supabase.from('lessons') as any)
       .select('student_id, scheduled_at, duration_minutes')
       .gte('scheduled_at', startDate + 'T00:00:00')
       .lte('scheduled_at', endDateStr + 'T23:59:59')
