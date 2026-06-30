@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Lesson, Student } from '@/lib/types'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
@@ -301,6 +302,7 @@ function LessonBlock({
   onRefresh: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const router = useRouter()
 
   async function update(status: string) {
     await (supabase.from('lessons') as any).update({ status }).eq('id', lesson.id)
@@ -317,18 +319,27 @@ function LessonBlock({
 
   return (
     <div
-      className={`absolute left-0.5 right-0.5 rounded border px-1.5 py-1 overflow-hidden cursor-pointer z-20 ${colorMap[lesson.status] || 'bg-gray-100'}`}
+      className={`absolute left-0.5 right-0.5 rounded border px-1.5 py-1 overflow-hidden z-20 ${colorMap[lesson.status] || 'bg-gray-100'}`}
       style={{ top, height }}
-      onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
+      onClick={(e) => { e.stopPropagation(); router.push(`/students/${lesson.student_id}`) }}
     >
-      <div className="text-xs font-semibold truncate leading-tight">{lesson.student?.name}</div>
+      {/* Кнопка меню статуса */}
+      <button
+        className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded opacity-40 hover:opacity-100 hover:bg-black/10 text-current z-30"
+        onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
+        title="Изменить статус"
+      >
+        ⋮
+      </button>
+
+      <div className="text-xs font-semibold truncate leading-tight pr-5">{lesson.student?.name}</div>
       {height >= 32 && (
         <div className="text-xs opacity-70 truncate">{startStr} · {lesson.duration_minutes}м</div>
       )}
       {height >= 48 && lesson.is_trial && <div className="text-xs opacity-60">Пробное</div>}
 
       {menuOpen && (
-        <div className="absolute z-30 top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-36" onClick={(e) => e.stopPropagation()}>
+        <div className="absolute z-30 top-full right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-36" onClick={(e) => e.stopPropagation()}>
           {lesson.status === 'scheduled' && (
             <>
               <button onClick={() => update('completed')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">✓ Проведено</button>
@@ -339,7 +350,7 @@ function LessonBlock({
           {lesson.status !== 'scheduled' && (
             <button onClick={() => update('scheduled')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">↩ Вернуть</button>
           )}
-          <button onClick={() => setMenuOpen(false)} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
         </div>
       )}
     </div>
