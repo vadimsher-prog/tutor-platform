@@ -20,6 +20,7 @@ interface DashboardData {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [completing, setCompleting] = useState(false)
 
   useEffect(() => {
     loadDashboard()
@@ -82,6 +83,15 @@ export default function DashboardPage() {
     )
   }
 
+  async function completeAllToday() {
+    if (!data?.todayLessons.length) return
+    setCompleting(true)
+    const ids = data.todayLessons.map(l => l.id)
+    await (supabase.from('lessons') as any).update({ status: 'completed' }).in('id', ids)
+    setCompleting(false)
+    loadDashboard()
+  }
+
   const { todayLessons, weekLessons, stats } = data!
 
   return (
@@ -114,7 +124,18 @@ export default function DashboardPage() {
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-900">Сегодня</h2>
-            <Link href="/schedule" className="text-sm text-sky-600 hover:underline">Всё расписание →</Link>
+            <div className="flex items-center gap-3">
+              {todayLessons.length > 0 && (
+                <button
+                  onClick={completeAllToday}
+                  disabled={completing}
+                  className="text-xs text-green-700 hover:text-green-900 font-medium disabled:opacity-50"
+                >
+                  {completing ? 'Сохранение...' : '✓ Провести все'}
+                </button>
+              )}
+              <Link href="/schedule" className="text-sm text-sky-600 hover:underline">Расписание →</Link>
+            </div>
           </div>
           {todayLessons.length === 0 ? (
             <p className="text-sm text-gray-400">Занятий нет</p>
