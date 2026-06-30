@@ -142,7 +142,7 @@ function LessonBlock({ lesson, onRefresh }: { lesson: Lesson & { student: Studen
   const [menuOpen, setMenuOpen] = useState(false)
 
   async function update(status: string) {
-    await supabase.from('lessons').update({ status }).eq('id', lesson.id)
+    await (supabase.from('lessons') as any).update({ status }).eq('id', lesson.id)
     setMenuOpen(false)
     onRefresh()
   }

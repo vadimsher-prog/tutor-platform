@@ -65,6 +65,37 @@ export interface MonthlySubscription {
   created_at: string
 }
 
+export interface TeacherSettings {
+  id: string
+  work_start: string
+  work_end: string
+  break_start: string | null
+  break_end: string | null
+  work_days: number[]
+  updated_at: string
+}
+
+export interface BlockedSlot {
+  id: string
+  label: string
+  slot_type: 'recurring' | 'one_time'
+  day_of_week: number | null
+  start_time: string | null
+  end_time: string | null
+  blocked_date: string | null
+  created_at: string
+}
+
+export interface StudentSchedule {
+  id: string
+  student_id: string
+  day_of_week: number
+  start_time: string
+  duration_minutes: number
+  is_active: boolean
+  created_at: string
+}
+
 // Supabase Database type
 export interface Database {
   public: {
@@ -93,6 +124,21 @@ export interface Database {
         Row: MonthlySubscription
         Insert: Omit<MonthlySubscription, 'id' | 'created_at'>
         Update: Partial<Omit<MonthlySubscription, 'id' | 'created_at'>>
+      }
+      teacher_settings: {
+        Row: TeacherSettings
+        Insert: Omit<TeacherSettings, 'id' | 'updated_at'>
+        Update: Partial<Omit<TeacherSettings, 'id'>>
+      }
+      blocked_slots: {
+        Row: BlockedSlot
+        Insert: Omit<BlockedSlot, 'id' | 'created_at'>
+        Update: Partial<Omit<BlockedSlot, 'id' | 'created_at'>>
+      }
+      student_schedules: {
+        Row: StudentSchedule
+        Insert: Omit<StudentSchedule, 'id' | 'created_at'>
+        Update: Partial<Omit<StudentSchedule, 'id' | 'created_at'>>
       }
     }
   }
