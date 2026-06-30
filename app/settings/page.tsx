@@ -56,8 +56,8 @@ export default function SettingsPage() {
 
   async function loadData() {
     const [settingsRes, slotsRes] = await Promise.all([
-      supabase.from('teacher_settings').select('*').limit(1).single(),
-      supabase.from('blocked_slots').select('*').order('slot_type').order('day_of_week').order('blocked_date'),
+      supabase.from('teacher_settings').select('*').limit(1).single() as any,
+      (supabase.from('blocked_slots') as any).select('*').order('slot_type').order('day_of_week').order('blocked_date'),
     ])
     if (settingsRes.data) {
       const s = settingsRes.data as TeacherSettings
@@ -87,7 +87,7 @@ export default function SettingsPage() {
   async function saveSettings() {
     if (!settings) return
     setSaveStatus('saving')
-    await supabase.from('teacher_settings').update({
+    await (supabase.from('teacher_settings') as any).update({
       work_start: form.work_start,
       work_end: form.work_end,
       break_start: form.has_break ? form.break_start : null,
@@ -114,7 +114,7 @@ export default function SettingsPage() {
         payload.end_time = blockForm.end_time
       }
     }
-    await supabase.from('blocked_slots').insert(payload)
+    await (supabase.from('blocked_slots') as any).insert(payload)
     setBlockSaving(false)
     setShowBlockForm(false)
     setBlockForm({ label: '', slot_type: 'recurring', day_of_week: '0', start_time: '10:00', end_time: '11:00', blocked_date: '', all_day: false })
@@ -122,7 +122,7 @@ export default function SettingsPage() {
   }
 
   async function deleteBlockedSlot(id: string) {
-    await supabase.from('blocked_slots').delete().eq('id', id)
+    await (supabase.from('blocked_slots') as any).delete().eq('id', id)
     loadData()
   }
 
