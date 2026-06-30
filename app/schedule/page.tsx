@@ -319,7 +319,7 @@ function LessonBlock({
 
   return (
     <div
-      className={`absolute left-0.5 right-0.5 rounded border px-1.5 py-1 overflow-hidden z-20 ${colorMap[lesson.status] || 'bg-gray-100'}`}
+      className={`absolute left-0.5 right-0.5 rounded border px-1.5 py-1 z-20 ${colorMap[lesson.status] || 'bg-gray-100'}`}
       style={{ top, height }}
       onClick={(e) => { e.stopPropagation(); router.push(`/students/${lesson.student_id}`) }}
     >
