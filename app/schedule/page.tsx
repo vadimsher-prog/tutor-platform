@@ -339,18 +339,25 @@ function LessonBlock({
       {height >= 48 && lesson.is_trial && <div className="text-xs opacity-60">Пробное</div>}
 
       {menuOpen && (
-        <div className="absolute z-30 top-full right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-36" onClick={(e) => e.stopPropagation()}>
-          {lesson.status === 'scheduled' && (
-            <>
-              <button onClick={() => update('completed')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">✓ Проведено</button>
-              <button onClick={() => update('cancelled')} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">✕ Отменить</button>
-              <button onClick={() => update('rescheduled')} className="w-full text-left px-3 py-1.5 text-xs text-yellow-700 hover:bg-yellow-50">↩ Перенесено</button>
-            </>
-          )}
-          {lesson.status !== 'scheduled' && (
-            <button onClick={() => update('scheduled')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">↩ Вернуть</button>
-          )}
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
+        <div className="absolute z-30 top-full right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-40" onClick={(e) => e.stopPropagation()}>
+          {[
+            { status: 'scheduled',   label: '🕐 Запланировано', cls: 'text-gray-700' },
+            { status: 'completed',   label: '✓ Проведено',      cls: 'text-green-700' },
+            { status: 'cancelled',   label: '✕ Отменено',       cls: 'text-red-600' },
+            { status: 'rescheduled', label: '↩ Перенесено',     cls: 'text-yellow-700' },
+          ].map(({ status, label, cls }) => (
+            <button
+              key={status}
+              onClick={() => update(status)}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-1.5 ${cls} ${lesson.status === status ? 'font-semibold bg-gray-50' : ''}`}
+            >
+              {label}
+              {lesson.status === status && <span className="ml-auto text-gray-400">✓</span>}
+            </button>
+          ))}
+          <div className="border-t border-gray-100 mt-1 pt-1">
+            <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
+          </div>
         </div>
       )}
     </div>
