@@ -8,7 +8,7 @@ import { formatTime } from '@/lib/utils'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
-const HOURS = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 – 21:00
+const DEFAULT_HOURS = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 – 21:00
 
 function jsDayToOur(jsDay: number): number { return (jsDay + 6) % 7 }
 
@@ -127,10 +127,17 @@ export default function SchedulePage() {
     setShowAddModal(true)
   }
 
+  const hours = settings
+    ? Array.from(
+        { length: Math.ceil(timeToMinutes(settings.work_end) / 60) - Math.floor(timeToMinutes(settings.work_start) / 60) },
+        (_, i) => Math.floor(timeToMinutes(settings.work_start) / 60) + i
+      )
+    : DEFAULT_HOURS
+
   const today = new Date()
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-3 h-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Расписание</h1>
         <div className="flex items-center gap-3">
@@ -152,7 +159,7 @@ export default function SchedulePage() {
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block" /> Занятие</span>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-auto">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 13rem)' }}>
         {/* Заголовок дней */}
         <div className="grid border-b border-gray-100" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)' }}>
           <div className="py-2" />
@@ -184,8 +191,8 @@ export default function SchedulePage() {
         {loading ? (
           <div className="p-8 text-center text-gray-400 text-sm">Загрузка...</div>
         ) : (
-          <div className="overflow-y-auto max-h-[600px]">
-            {HOURS.map((hour) => (
+          <div className="overflow-y-auto flex-1">
+            {hours.map((hour) => (
               <div key={hour} className="grid border-b border-gray-50 last:border-0" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)', minHeight: '4rem' }}>
                 <div className={`px-2 py-1 text-xs pt-1 ${isOutsideWorkHours(hour) ? 'text-gray-300' : 'text-gray-400'}`}>{hour}:00</div>
                 {weekDays.map((day) => {
