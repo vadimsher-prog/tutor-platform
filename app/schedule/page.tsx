@@ -4,17 +4,20 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { Lesson, Student } from '@/lib/types'
-import { formatTime } from '@/lib/utils'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
-const DEFAULT_HOURS = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 – 21:00
+const ROW_HEIGHT = 64 // px per hour
 
 function jsDayToOur(jsDay: number): number { return (jsDay + 6) % 7 }
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.slice(0, 5).split(':').map(Number)
   return h * 60 + m
+}
+
+function formatHHMM(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
 interface TeacherSettings {
@@ -27,6 +30,13 @@ interface BlockedSlot {
   id: string; label: string; slot_type: 'recurring' | 'one_time'
   day_of_week: number | null; start_time: string | null
   end_time: string | null; blocked_date: string | null
+}
+
+interface DayBlock {
+  label: string
+  startTime: string // HH:MM
+  endTime: string   // HH:MM
+  type: 'break' | 'recurring' | 'one_time'
 }
 
 export default function SchedulePage() {
@@ -62,8 +72,19 @@ export default function SchedulePage() {
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
-  function lessonsForDay(day: Date) {
-    return lessons.filter((l) => isSameDay(parseISO(l.scheduled_at), day))
+  // Hours range from settings or default 7-21
+  const firstHour = settings ? Math.floor(timeToMinutes(settings.work_start) / 60) : 7
+  const lastHour  = settings ? Math.ceil(timeToMinutes(settings.work_end) / 60) : 21
+  const hours = Array.from({ length: lastHour - firstHour }, (_, i) => firstHour + i)
+  const totalHeight = hours.length * ROW_HEIGHT
+
+  // Convert time to px offset from top of grid
+  function timeToPx(timeStr: string): number {
+    return ((timeToMinutes(timeStr) - firstHour * 60) / 60) * ROW_HEIGHT
+  }
+
+  function durationToPx(minutes: number): number {
+    return (minutes / 60) * ROW_HEIGHT
   }
 
   function isWorkDay(day: Date): boolean {
@@ -76,73 +97,56 @@ export default function SchedulePage() {
     return blockedSlots.find(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && !b.start_time) || null
   }
 
-  // Returns blocks that overlap a given hour for a given day
-  function blocksForHour(day: Date, hour: number): Array<{ label: string; type: 'break' | 'recurring' | 'one_time' }> {
-    const result: Array<{ label: string; type: 'break' | 'recurring' | 'one_time' }> = []
-    const hourStart = hour * 60
-    const hourEnd = hourStart + 60
+  function getDayBlocks(day: Date): DayBlock[] {
+    const result: DayBlock[] = []
     const dateStr = format(day, 'yyyy-MM-dd')
     const dayOfWeek = jsDayToOur(day.getDay())
 
     // Break
     if (settings?.break_start && settings?.break_end) {
-      const bs = timeToMinutes(settings.break_start)
-      const be = timeToMinutes(settings.break_end)
-      if (bs < hourEnd && be > hourStart) {
-        result.push({ label: `Перерыв ${settings.break_start.slice(0,5)}–${settings.break_end.slice(0,5)}`, type: 'break' })
-      }
+      result.push({
+        label: `Перерыв`,
+        startTime: settings.break_start.slice(0, 5),
+        endTime: settings.break_end.slice(0, 5),
+        type: 'break',
+      })
     }
 
-    // Recurring blocks
+    // Recurring blocks for this day of week
     for (const b of blockedSlots.filter(b => b.slot_type === 'recurring' && b.day_of_week === dayOfWeek && b.start_time)) {
-      const bs = timeToMinutes(b.start_time!)
-      const be = timeToMinutes(b.end_time!)
-      if (bs < hourEnd && be > hourStart) {
-        result.push({ label: `${b.label} ${b.start_time!.slice(0,5)}–${b.end_time!.slice(0,5)}`, type: 'recurring' })
-      }
+      result.push({ label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'recurring' })
     }
 
-    // One-time blocks with time
+    // One-time blocks with specific time
     for (const b of blockedSlots.filter(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && b.start_time)) {
-      const bs = timeToMinutes(b.start_time!)
-      const be = timeToMinutes(b.end_time!)
-      if (bs < hourEnd && be > hourStart) {
-        result.push({ label: `${b.label} ${b.start_time!.slice(0,5)}–${b.end_time!.slice(0,5)}`, type: 'one_time' })
-      }
+      result.push({ label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'one_time' })
     }
 
     return result
   }
 
-  // Hours outside work time
-  function isOutsideWorkHours(hour: number): boolean {
-    if (!settings) return false
-    const workStart = Math.floor(timeToMinutes(settings.work_start) / 60)
-    const workEnd = Math.ceil(timeToMinutes(settings.work_end) / 60)
-    return hour < workStart || hour >= workEnd
+  function lessonsForDay(day: Date) {
+    return lessons.filter((l) => isSameDay(parseISO(l.scheduled_at), day))
   }
 
-  function handleSlotClick(date: Date, hour: number) {
-    setSelectedSlot({ date, hour })
+  function handleColumnClick(e: React.MouseEvent<HTMLDivElement>, day: Date) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    const hour = firstHour + Math.floor(y / ROW_HEIGHT)
+    setSelectedSlot({ date: day, hour })
     setShowAddModal(true)
   }
-
-  const hours = settings
-    ? Array.from(
-        { length: Math.ceil(timeToMinutes(settings.work_end) / 60) - Math.floor(timeToMinutes(settings.work_start) / 60) },
-        (_, i) => Math.floor(timeToMinutes(settings.work_start) / 60) + i
-      )
-    : DEFAULT_HOURS
 
   const today = new Date()
 
   return (
-    <div className="flex flex-col gap-3 h-full">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-3" style={{ height: 'calc(100vh - 5rem)' }}>
+      {/* Навигация */}
+      <div className="flex items-center justify-between flex-shrink-0">
         <h1 className="text-2xl font-bold text-gray-900">Расписание</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn-secondary px-3">←</button>
-          <span className="text-sm font-medium text-gray-700">
+          <span className="text-sm font-medium text-gray-700 min-w-[12rem] text-center">
             {format(weekStart, 'd MMM', { locale: ru })} – {format(addDays(weekStart, 6), 'd MMM yyyy', { locale: ru })}
           </span>
           <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn-secondary px-3">→</button>
@@ -152,16 +156,10 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Легенда */}
-      <div className="flex items-center gap-4 text-xs text-gray-500">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-200 border border-orange-300 inline-block" /> Личное время</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200 inline-block" /> Нерабочее время</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block" /> Занятие</span>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 13rem)' }}>
+      {/* Сетка */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-0">
         {/* Заголовок дней */}
-        <div className="grid border-b border-gray-100" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)' }}>
+        <div className="grid flex-shrink-0 border-b border-gray-100" style={{ gridTemplateColumns: '3.5rem repeat(7, 1fr)' }}>
           <div className="py-2" />
           {weekDays.map((day) => {
             const fullBlock = isFullDayBlocked(day)
@@ -170,10 +168,10 @@ export default function SchedulePage() {
               <div
                 key={day.toISOString()}
                 className={`py-2 text-center text-sm font-medium border-l border-gray-100 ${
-                  isSameDay(day, today) ? 'bg-sky-50 text-sky-700'
+                  isSameDay(day, today) ? 'bg-sky-50'
                   : fullBlock ? 'bg-red-50'
                   : !workDay ? 'bg-gray-50'
-                  : 'text-gray-600'
+                  : ''
                 }`}
               >
                 <div className="text-xs text-gray-400">{format(day, 'EEE', { locale: ru })}</div>
@@ -187,59 +185,100 @@ export default function SchedulePage() {
           })}
         </div>
 
-        {/* Временная сетка */}
+        {/* Временная сетка с прокруткой */}
         {loading ? (
           <div className="p-8 text-center text-gray-400 text-sm">Загрузка...</div>
         ) : (
           <div className="overflow-y-auto flex-1">
-            {hours.map((hour) => (
-              <div key={hour} className="grid border-b border-gray-50 last:border-0" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)', minHeight: '4rem' }}>
-                <div className={`px-2 py-1 text-xs pt-1 ${isOutsideWorkHours(hour) ? 'text-gray-300' : 'text-gray-400'}`}>{hour}:00</div>
-                {weekDays.map((day) => {
-                  const dateStr = format(day, 'yyyy-MM-dd')
-                  const fullBlock = isFullDayBlocked(day)
-                  const workDay = isWorkDay(day)
-                  const outsideWork = isOutsideWorkHours(hour)
-                  const blocks = (!fullBlock && workDay) ? blocksForHour(day, hour) : []
-                  const dayLessons = lessonsForDay(day).filter((l) => parseISO(l.scheduled_at).getHours() === hour)
+            <div className="grid" style={{ gridTemplateColumns: '3.5rem repeat(7, 1fr)', height: totalHeight }}>
+              {/* Колонка времени */}
+              <div className="relative border-r border-gray-100">
+                {hours.map((hour, i) => (
+                  <div key={hour} className="absolute w-full border-b border-gray-50" style={{ top: i * ROW_HEIGHT, height: ROW_HEIGHT }}>
+                    <span className="text-xs text-gray-400 px-1.5 pt-1 block">{hour}:00</span>
+                  </div>
+                ))}
+              </div>
 
-                  const bgClass = fullBlock
-                    ? 'bg-red-50'
-                    : !workDay
-                    ? 'bg-gray-50'
-                    : outsideWork
-                    ? 'bg-gray-50/50'
-                    : ''
+              {/* Колонки дней */}
+              {weekDays.map((day) => {
+                const fullBlock = isFullDayBlocked(day)
+                const workDay = isWorkDay(day)
+                const dayBlocks = (!fullBlock && workDay) ? getDayBlocks(day) : []
+                const dayLessons = lessonsForDay(day)
 
-                  return (
-                    <div
-                      key={dateStr}
-                      className={`border-l border-gray-50 relative p-0.5 cursor-pointer hover:bg-sky-50/30 min-h-[4rem] ${bgClass}`}
-                      onClick={() => handleSlotClick(day, hour)}
-                    >
-                      {blocks.map((block, i) => (
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`relative border-l border-gray-100 cursor-pointer ${
+                      fullBlock ? 'bg-red-50/40' : !workDay ? 'bg-gray-50/70' : 'hover:bg-sky-50/20'
+                    }`}
+                    style={{ height: totalHeight }}
+                    onClick={(e) => { if (!fullBlock && workDay) handleColumnClick(e, day) }}
+                  >
+                    {/* Горизонтальные линии часов */}
+                    {hours.map((_, i) => (
+                      <div key={i} className="absolute w-full border-b border-gray-50" style={{ top: i * ROW_HEIGHT, height: ROW_HEIGHT }} />
+                    ))}
+
+                    {/* Блокировки и личное время */}
+                    {dayBlocks.map((block, i) => {
+                      const top = timeToPx(block.startTime)
+                      const height = Math.max(16, timeToPx(block.endTime) - top)
+                      if (top < 0 || top >= totalHeight) return null
+                      return (
                         <div
                           key={i}
-                          className={`text-xs rounded p-1 mb-0.5 border ${
+                          className={`absolute left-0.5 right-0.5 rounded px-1.5 py-1 overflow-hidden z-10 ${
                             block.type === 'break'
-                              ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                              : 'bg-orange-50 border-orange-200 text-orange-700'
+                              ? 'bg-yellow-100 border border-yellow-200'
+                              : 'bg-orange-100 border border-orange-200'
                           }`}
+                          style={{ top, height }}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="truncate font-medium">{block.label}</div>
+                          <div className={`text-xs font-medium truncate ${block.type === 'break' ? 'text-yellow-700' : 'text-orange-700'}`}>
+                            {block.label}
+                          </div>
+                          <div className={`text-xs truncate ${block.type === 'break' ? 'text-yellow-600' : 'text-orange-600'}`}>
+                            {block.startTime}–{block.endTime}
+                          </div>
                         </div>
-                      ))}
-                      {dayLessons.map((lesson) => (
-                        <LessonBlock key={lesson.id} lesson={lesson} onRefresh={loadWeek} />
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
+                      )
+                    })}
+
+                    {/* Занятия */}
+                    {dayLessons.map((lesson) => {
+                      const d = parseISO(lesson.scheduled_at)
+                      const startStr = formatHHMM(d)
+                      const top = timeToPx(startStr)
+                      const height = Math.max(20, durationToPx(lesson.duration_minutes))
+                      if (top < 0 || top >= totalHeight) return null
+                      return (
+                        <LessonBlock
+                          key={lesson.id}
+                          lesson={lesson}
+                          top={top}
+                          height={height}
+                          startStr={startStr}
+                          onRefresh={loadWeek}
+                        />
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
+      </div>
+
+      {/* Легенда */}
+      <div className="flex items-center gap-4 text-xs text-gray-400 flex-shrink-0">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block" /> Занятие</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-200 inline-block" /> Личное время</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-yellow-100 border border-yellow-200 inline-block" /> Перерыв</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-50 border border-gray-200 inline-block" /> Выходной</span>
       </div>
 
       {showAddModal && (
@@ -254,7 +293,13 @@ export default function SchedulePage() {
   )
 }
 
-function LessonBlock({ lesson, onRefresh }: { lesson: Lesson & { student: Student }; onRefresh: () => void }) {
+function LessonBlock({
+  lesson, top, height, startStr, onRefresh
+}: {
+  lesson: Lesson & { student: Student }
+  top: number; height: number; startStr: string
+  onRefresh: () => void
+}) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   async function update(status: string) {
@@ -272,15 +317,18 @@ function LessonBlock({ lesson, onRefresh }: { lesson: Lesson & { student: Studen
 
   return (
     <div
-      className={`text-xs rounded p-1.5 border mb-0.5 cursor-pointer relative ${colorMap[lesson.status] || 'bg-gray-100'}`}
+      className={`absolute left-0.5 right-0.5 rounded border px-1.5 py-1 overflow-hidden cursor-pointer z-20 ${colorMap[lesson.status] || 'bg-gray-100'}`}
+      style={{ top, height }}
       onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
     >
-      <div className="font-medium truncate">{lesson.student?.name}</div>
-      <div className="text-xs opacity-70">{formatTime(lesson.scheduled_at)} · {lesson.duration_minutes}м</div>
-      {lesson.is_trial && <div className="text-xs opacity-70">Пробное</div>}
+      <div className="text-xs font-semibold truncate leading-tight">{lesson.student?.name}</div>
+      {height >= 32 && (
+        <div className="text-xs opacity-70 truncate">{startStr} · {lesson.duration_minutes}м</div>
+      )}
+      {height >= 48 && lesson.is_trial && <div className="text-xs opacity-60">Пробное</div>}
 
       {menuOpen && (
-        <div className="absolute z-10 top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-36" onClick={(e) => e.stopPropagation()}>
+        <div className="absolute z-30 top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-36" onClick={(e) => e.stopPropagation()}>
           {lesson.status === 'scheduled' && (
             <>
               <button onClick={() => update('completed')} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">✓ Проведено</button>
@@ -362,9 +410,11 @@ function AddLessonModal({
           <div>
             <label className="label">Продолжительность</label>
             <select className="input" value={form.duration} onChange={(e) => setForm(p => ({ ...p, duration: e.target.value }))}>
+              <option value="30">30 мин</option>
               <option value="45">45 мин</option>
               <option value="60">60 мин</option>
               <option value="90">90 мин</option>
+              <option value="120">120 мин</option>
             </select>
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
