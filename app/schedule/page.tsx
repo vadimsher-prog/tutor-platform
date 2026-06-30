@@ -51,6 +51,7 @@ export default function SchedulePage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date; hour: number } | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState<(Lesson & { student: Student }) | null>(null)
   const router = useRouter()
 
   // Close context menu on outside click
@@ -143,6 +144,22 @@ export default function SchedulePage() {
   async function updateLessonStatus(id: string, status: string) {
     await (supabase.from('lessons') as any).update({ status }).eq('id', id)
     setContextMenu(null); loadWeek()
+  }
+
+  async function rescheduleLesson(lesson: Lesson & { student: Student }, newDate: string, newTime: string) {
+    const newScheduledAt = new Date(`${newDate}T${newTime}`).toISOString()
+    await (supabase.from('lessons') as any).update({ status: 'rescheduled' }).eq('id', lesson.id)
+    await (supabase.from('lessons') as any).insert({
+      student_id: lesson.student_id,
+      scheduled_at: newScheduledAt,
+      duration_minutes: lesson.duration_minutes,
+      status: 'scheduled',
+      is_trial: lesson.is_trial,
+      notes: `Перенесено`,
+      google_event_id: null,
+    })
+    setRescheduleTarget(null)
+    loadWeek()
   }
 
   function handleColumnClick(e: React.MouseEvent<HTMLDivElement>, day: Date) {
@@ -272,7 +289,7 @@ export default function SchedulePage() {
                         >
                           <button
                             className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded opacity-40 hover:opacity-100 hover:bg-black/10 z-30 text-sm text-current"
-                            onClick={(e) => openMenu(e, <LessonMenu lesson={lesson} onUpdate={(s) => updateLessonStatus(lesson.id, s)} onClose={() => setContextMenu(null)} />)}
+                            onClick={(e) => openMenu(e, <LessonMenu lesson={lesson} onUpdate={(s) => updateLessonStatus(lesson.id, s)} onReschedule={() => { setContextMenu(null); setRescheduleTarget(lesson) }} onClose={() => setContextMenu(null)} />)}
                           >⋮</button>
                           <div className="text-xs font-semibold truncate leading-tight pr-5">{lesson.student?.name}</div>
                           {height >= 32 && <div className="text-xs opacity-70 truncate">{startStr} · {lesson.duration_minutes}м</div>}
@@ -320,27 +337,94 @@ export default function SchedulePage() {
           onSaved={() => { setShowAddModal(false); setSelectedSlot(null); loadWeek() }}
         />
       )}
+
+      {rescheduleTarget && (
+        <RescheduleLessonModal
+          lesson={rescheduleTarget}
+          onClose={() => setRescheduleTarget(null)}
+          onSaved={(date, time) => rescheduleLesson(rescheduleTarget, date, time)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonMenu({ lesson, onUpdate, onClose }: { lesson: Lesson & { student: Student }; onUpdate: (s: string) => void; onClose: () => void }) {
+function LessonMenu({ lesson, onUpdate, onReschedule, onClose }: {
+  lesson: Lesson & { student: Student }
+  onUpdate: (s: string) => void
+  onReschedule: () => void
+  onClose: () => void
+}) {
   return <>
     {[
-      { status: 'scheduled',   label: '🕐 Запланировано', cls: 'text-gray-700' },
-      { status: 'completed',   label: '✓ Проведено',      cls: 'text-green-700' },
-      { status: 'cancelled',   label: '✕ Отменено',       cls: 'text-red-600' },
-      { status: 'rescheduled', label: '↩ Перенесено',     cls: 'text-yellow-700' },
+      { status: 'scheduled', label: '🕐 Запланировано', cls: 'text-gray-700' },
+      { status: 'completed', label: '✓ Проведено',      cls: 'text-green-700' },
+      { status: 'cancelled', label: '✕ Отменено',       cls: 'text-red-600' },
     ].map(({ status, label, cls }) => (
       <button key={status} onClick={() => onUpdate(status)}
         className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center ${cls} ${lesson.status === status ? 'font-semibold bg-gray-50' : ''}`}>
         {label}{lesson.status === status && <span className="ml-auto text-gray-300">✓</span>}
       </button>
     ))}
+    <button
+      onClick={onReschedule}
+      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-yellow-50 flex items-center text-yellow-700 ${lesson.status === 'rescheduled' ? 'font-semibold bg-yellow-50' : ''}`}>
+      ↩ Перенести{lesson.status === 'rescheduled' && <span className="ml-auto text-gray-300">✓</span>}
+    </button>
     <div className="border-t border-gray-100 mt-1 pt-1">
       <button onClick={onClose} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
     </div>
   </>
+}
+
+function RescheduleLessonModal({ lesson, onClose, onSaved }: {
+  lesson: Lesson & { student: Student }
+  onClose: () => void
+  onSaved: (date: string, time: string) => void
+}) {
+  const d = parseISO(lesson.scheduled_at)
+  const [form, setForm] = useState({ date: format(d, 'yyyy-MM-dd'), time: formatHHMM(d) })
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    onSaved(form.date, form.time)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold">↩ Перенести занятие</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+          <p className="text-sm font-medium text-gray-800">{lesson.student?.name}</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Сейчас: {format(d, 'd MMM', { locale: ru })} в {formatHHMM(d)} · {lesson.duration_minutes} мин
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Новая дата</label>
+              <input className="input" type="date" required value={form.date} onChange={(e) => setForm(p => ({ ...p, date: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Новое время</label>
+              <input className="input" type="time" required value={form.time} onChange={(e) => setForm(p => ({ ...p, time: e.target.value }))} />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">Старое занятие получит статус «Перенесено», создастся новое на указанное время.</p>
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Сохранение...' : 'Перенести'}</button>
+            <button type="button" onClick={onClose} className="btn-secondary">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 function BreakMenu({ day, onCancelDay, onSettings, onClose }: { day: Date; onCancelDay: () => void; onSettings: () => void; onClose: () => void }) {
