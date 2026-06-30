@@ -127,7 +127,8 @@ export default function SettingsPage() {
   }
 
   const recurringSlots = blockedSlots.filter(s => s.slot_type === 'recurring')
-  const oneTimeSlots = blockedSlots.filter(s => s.slot_type === 'one_time')
+  const oneTimeSlots = blockedSlots.filter(s => s.slot_type === 'one_time' && s.label !== '__break_cancel__')
+  const cancelledBreaks = blockedSlots.filter(s => s.label === '__break_cancel__')
 
   if (loading) return <div className="text-gray-400 text-sm">Загрузка...</div>
 
@@ -304,10 +305,33 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {blockedSlots.length === 0 && !showBlockForm && (
+        {blockedSlots.filter(s => s.label !== '__break_cancel__').length === 0 && !showBlockForm && (
           <p className="text-sm text-gray-400 py-2">Блокировки не заданы</p>
         )}
       </div>
+
+      {cancelledBreaks.length > 0 && (
+        <div className="card space-y-3">
+          <div>
+            <h2 className="font-semibold text-gray-800">Отменённые перерывы</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Перерыв отменён на эти даты — можно восстановить</p>
+          </div>
+          {cancelledBreaks.map((slot) => (
+            <div key={slot.id} className="flex items-center justify-between bg-yellow-50 rounded-lg px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Перерыв отменён</p>
+                <p className="text-xs text-gray-500">{slot.blocked_date}</p>
+              </div>
+              <button
+                onClick={() => deleteBlockedSlot(slot.id)}
+                className="text-xs text-yellow-700 hover:text-yellow-900 font-medium border border-yellow-300 rounded px-2 py-1 hover:bg-yellow-100 transition-colors"
+              >
+                ↩ Восстановить
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
