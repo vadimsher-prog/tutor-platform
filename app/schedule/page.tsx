@@ -4,16 +4,37 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { Lesson, Student } from '@/lib/types'
-import { formatTime, formatMoney, lessonStatusLabel, lessonStatusColor } from '@/lib/utils'
+import { formatTime } from '@/lib/utils'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 – 21:00
 
+function jsDayToOur(jsDay: number): number { return (jsDay + 6) % 7 }
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.slice(0, 5).split(':').map(Number)
+  return h * 60 + m
+}
+
+interface TeacherSettings {
+  work_start: string; work_end: string
+  break_start: string | null; break_end: string | null
+  work_days: number[]
+}
+
+interface BlockedSlot {
+  id: string; label: string; slot_type: 'recurring' | 'one_time'
+  day_of_week: number | null; start_time: string | null
+  end_time: string | null; blocked_date: string | null
+}
+
 export default function SchedulePage() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [lessons, setLessons] = useState<(Lesson & { student: Student })[]>([])
   const [students, setStudents] = useState<Student[]>([])
+  const [settings, setSettings] = useState<TeacherSettings | null>(null)
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date; hour: number } | null>(null)
@@ -25,18 +46,17 @@ export default function SchedulePage() {
     const from = weekStart.toISOString()
     const to = addDays(weekStart, 7).toISOString()
 
-    const [lRes, sRes] = await Promise.all([
-      supabase
-        .from('lessons')
-        .select('*, student:students(*)')
-        .gte('scheduled_at', from)
-        .lt('scheduled_at', to)
-        .order('scheduled_at'),
-      supabase.from('students').select('*').eq('is_active', true).order('name'),
+    const [lRes, sRes, settingsRes, blockedRes] = await Promise.all([
+      supabase.from('lessons').select('*, student:students(*)').gte('scheduled_at', from).lt('scheduled_at', to).order('scheduled_at') as any,
+      supabase.from('students').select('*').eq('is_active', true).order('name') as any,
+      supabase.from('teacher_settings').select('*').limit(1).single() as any,
+      supabase.from('blocked_slots').select('*') as any,
     ])
 
     setLessons((lRes.data || []) as any)
     setStudents(sRes.data || [])
+    if (settingsRes.data) setSettings(settingsRes.data as TeacherSettings)
+    setBlockedSlots((blockedRes.data || []) as BlockedSlot[])
     setLoading(false)
   }
 
@@ -44,6 +64,62 @@ export default function SchedulePage() {
 
   function lessonsForDay(day: Date) {
     return lessons.filter((l) => isSameDay(parseISO(l.scheduled_at), day))
+  }
+
+  function isWorkDay(day: Date): boolean {
+    if (!settings) return true
+    return settings.work_days.includes(jsDayToOur(day.getDay()))
+  }
+
+  function isFullDayBlocked(day: Date): BlockedSlot | null {
+    const dateStr = format(day, 'yyyy-MM-dd')
+    return blockedSlots.find(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && !b.start_time) || null
+  }
+
+  // Returns blocks that overlap a given hour for a given day
+  function blocksForHour(day: Date, hour: number): Array<{ label: string; type: 'break' | 'recurring' | 'one_time' }> {
+    const result: Array<{ label: string; type: 'break' | 'recurring' | 'one_time' }> = []
+    const hourStart = hour * 60
+    const hourEnd = hourStart + 60
+    const dateStr = format(day, 'yyyy-MM-dd')
+    const dayOfWeek = jsDayToOur(day.getDay())
+
+    // Break
+    if (settings?.break_start && settings?.break_end) {
+      const bs = timeToMinutes(settings.break_start)
+      const be = timeToMinutes(settings.break_end)
+      if (bs < hourEnd && be > hourStart) {
+        result.push({ label: `Перерыв ${settings.break_start.slice(0,5)}–${settings.break_end.slice(0,5)}`, type: 'break' })
+      }
+    }
+
+    // Recurring blocks
+    for (const b of blockedSlots.filter(b => b.slot_type === 'recurring' && b.day_of_week === dayOfWeek && b.start_time)) {
+      const bs = timeToMinutes(b.start_time!)
+      const be = timeToMinutes(b.end_time!)
+      if (bs < hourEnd && be > hourStart) {
+        result.push({ label: `${b.label} ${b.start_time!.slice(0,5)}–${b.end_time!.slice(0,5)}`, type: 'recurring' })
+      }
+    }
+
+    // One-time blocks with time
+    for (const b of blockedSlots.filter(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && b.start_time)) {
+      const bs = timeToMinutes(b.start_time!)
+      const be = timeToMinutes(b.end_time!)
+      if (bs < hourEnd && be > hourStart) {
+        result.push({ label: `${b.label} ${b.start_time!.slice(0,5)}–${b.end_time!.slice(0,5)}`, type: 'one_time' })
+      }
+    }
+
+    return result
+  }
+
+  // Hours outside work time
+  function isOutsideWorkHours(hour: number): boolean {
+    if (!settings) return false
+    const workStart = Math.floor(timeToMinutes(settings.work_start) / 60)
+    const workEnd = Math.ceil(timeToMinutes(settings.work_end) / 60)
+    return hour < workStart || hour >= workEnd
   }
 
   function handleSlotClick(date: Date, hour: number) {
@@ -55,7 +131,6 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-4">
-      {/* Навигация по неделям */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Расписание</h1>
         <div className="flex items-center gap-3">
@@ -64,35 +139,45 @@ export default function SchedulePage() {
             {format(weekStart, 'd MMM', { locale: ru })} – {format(addDays(weekStart, 6), 'd MMM yyyy', { locale: ru })}
           </span>
           <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn-secondary px-3">→</button>
-          <button
-            onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-            className="btn-secondary text-sm"
-          >
-            Сегодня
-          </button>
+          <button onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} className="btn-secondary text-sm">Сегодня</button>
           <Link href="/schedule/generate" className="btn-secondary text-sm">🗓 Сгенерировать</Link>
           <button onClick={() => { setSelectedSlot(null); setShowAddModal(true) }} className="btn-primary">+ Занятие</button>
         </div>
       </div>
 
-      {/* Сетка недели */}
+      {/* Легенда */}
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-200 border border-orange-300 inline-block" /> Личное время</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200 inline-block" /> Нерабочее время</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-100 border border-sky-300 inline-block" /> Занятие</span>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 overflow-auto">
         {/* Заголовок дней */}
         <div className="grid border-b border-gray-100" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)' }}>
           <div className="py-2" />
-          {weekDays.map((day) => (
-            <div
-              key={day.toISOString()}
-              className={`py-2 text-center text-sm font-medium border-l border-gray-100 ${
-                isSameDay(day, today) ? 'bg-sky-50 text-sky-700' : 'text-gray-600'
-              }`}
-            >
-              <div className="text-xs text-gray-400">{format(day, 'EEE', { locale: ru })}</div>
-              <div className={`text-lg font-bold ${isSameDay(day, today) ? 'text-sky-600' : 'text-gray-800'}`}>
-                {format(day, 'd')}
+          {weekDays.map((day) => {
+            const fullBlock = isFullDayBlocked(day)
+            const workDay = isWorkDay(day)
+            return (
+              <div
+                key={day.toISOString()}
+                className={`py-2 text-center text-sm font-medium border-l border-gray-100 ${
+                  isSameDay(day, today) ? 'bg-sky-50 text-sky-700'
+                  : fullBlock ? 'bg-red-50'
+                  : !workDay ? 'bg-gray-50'
+                  : 'text-gray-600'
+                }`}
+              >
+                <div className="text-xs text-gray-400">{format(day, 'EEE', { locale: ru })}</div>
+                <div className={`text-lg font-bold ${isSameDay(day, today) ? 'text-sky-600' : 'text-gray-800'}`}>
+                  {format(day, 'd')}
+                </div>
+                {fullBlock && <div className="text-xs text-red-500 font-normal truncate px-1">{fullBlock.label}</div>}
+                {!fullBlock && !workDay && <div className="text-xs text-gray-400 font-normal">выходной</div>}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Временная сетка */}
@@ -102,18 +187,42 @@ export default function SchedulePage() {
           <div className="overflow-y-auto max-h-[600px]">
             {HOURS.map((hour) => (
               <div key={hour} className="grid border-b border-gray-50 last:border-0" style={{ gridTemplateColumns: '4rem repeat(7, 1fr)', minHeight: '4rem' }}>
-                <div className="px-2 py-1 text-xs text-gray-400 pt-1">{hour}:00</div>
+                <div className={`px-2 py-1 text-xs pt-1 ${isOutsideWorkHours(hour) ? 'text-gray-300' : 'text-gray-400'}`}>{hour}:00</div>
                 {weekDays.map((day) => {
-                  const dayLessons = lessonsForDay(day).filter((l) => {
-                    const lessonHour = parseISO(l.scheduled_at).getHours()
-                    return lessonHour === hour
-                  })
+                  const dateStr = format(day, 'yyyy-MM-dd')
+                  const fullBlock = isFullDayBlocked(day)
+                  const workDay = isWorkDay(day)
+                  const outsideWork = isOutsideWorkHours(hour)
+                  const blocks = (!fullBlock && workDay) ? blocksForHour(day, hour) : []
+                  const dayLessons = lessonsForDay(day).filter((l) => parseISO(l.scheduled_at).getHours() === hour)
+
+                  const bgClass = fullBlock
+                    ? 'bg-red-50'
+                    : !workDay
+                    ? 'bg-gray-50'
+                    : outsideWork
+                    ? 'bg-gray-50/50'
+                    : ''
+
                   return (
                     <div
-                      key={day.toISOString()}
-                      className="border-l border-gray-50 relative p-0.5 cursor-pointer hover:bg-gray-50 min-h-[4rem]"
+                      key={dateStr}
+                      className={`border-l border-gray-50 relative p-0.5 cursor-pointer hover:bg-sky-50/30 min-h-[4rem] ${bgClass}`}
                       onClick={() => handleSlotClick(day, hour)}
                     >
+                      {blocks.map((block, i) => (
+                        <div
+                          key={i}
+                          className={`text-xs rounded p-1 mb-0.5 border ${
+                            block.type === 'break'
+                              ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+                              : 'bg-orange-50 border-orange-200 text-orange-700'
+                          }`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="truncate font-medium">{block.label}</div>
+                        </div>
+                      ))}
                       {dayLessons.map((lesson) => (
                         <LessonBlock key={lesson.id} lesson={lesson} onRefresh={loadWeek} />
                       ))}
