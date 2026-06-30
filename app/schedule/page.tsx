@@ -101,7 +101,7 @@ export default function SchedulePage() {
   }
   function isFullDayBlocked(day: Date): BlockedSlot | null {
     const dateStr = format(day, 'yyyy-MM-dd')
-    return blockedSlots.find(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && !b.start_time) || null
+    return blockedSlots.find(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && !b.start_time && b.label !== BREAK_CANCEL_LABEL) || null
   }
 
   function getDayBlocks(day: Date): DayBlock[] {
