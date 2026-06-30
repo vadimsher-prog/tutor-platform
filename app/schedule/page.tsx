@@ -34,9 +34,10 @@ interface BlockedSlot {
 }
 
 interface DayBlock {
+  id: string | null   // null for break (comes from settings, not DB)
   label: string
-  startTime: string // HH:MM
-  endTime: string   // HH:MM
+  startTime: string   // HH:MM
+  endTime: string     // HH:MM
   type: 'break' | 'recurring' | 'one_time'
 }
 
@@ -106,7 +107,8 @@ export default function SchedulePage() {
     // Break
     if (settings?.break_start && settings?.break_end) {
       result.push({
-        label: `Перерыв`,
+        id: null,
+        label: 'Перерыв',
         startTime: settings.break_start.slice(0, 5),
         endTime: settings.break_end.slice(0, 5),
         type: 'break',
@@ -115,15 +117,20 @@ export default function SchedulePage() {
 
     // Recurring blocks for this day of week
     for (const b of blockedSlots.filter(b => b.slot_type === 'recurring' && b.day_of_week === dayOfWeek && b.start_time)) {
-      result.push({ label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'recurring' })
+      result.push({ id: b.id, label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'recurring' })
     }
 
     // One-time blocks with specific time
     for (const b of blockedSlots.filter(b => b.slot_type === 'one_time' && b.blocked_date === dateStr && b.start_time)) {
-      result.push({ label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'one_time' })
+      result.push({ id: b.id, label: b.label, startTime: b.start_time!.slice(0, 5), endTime: b.end_time!.slice(0, 5), type: 'one_time' })
     }
 
     return result
+  }
+
+  async function deleteBlock(id: string) {
+    await (supabase.from('blocked_slots') as any).delete().eq('id', id)
+    loadWeek()
   }
 
   function lessonsForDay(day: Date) {
@@ -228,23 +235,14 @@ export default function SchedulePage() {
                       const height = Math.max(16, timeToPx(block.endTime) - top)
                       if (top < 0 || top >= totalHeight) return null
                       return (
-                        <div
+                        <BlockBlock
                           key={i}
-                          className={`absolute left-0.5 right-0.5 rounded px-1.5 py-1 overflow-hidden z-10 ${
-                            block.type === 'break'
-                              ? 'bg-yellow-100 border border-yellow-200'
-                              : 'bg-orange-100 border border-orange-200'
-                          }`}
-                          style={{ top, height }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className={`text-xs font-medium truncate ${block.type === 'break' ? 'text-yellow-700' : 'text-orange-700'}`}>
-                            {block.label}
-                          </div>
-                          <div className={`text-xs truncate ${block.type === 'break' ? 'text-yellow-600' : 'text-orange-600'}`}>
-                            {block.startTime}–{block.endTime}
-                          </div>
-                        </div>
+                          block={block}
+                          top={top}
+                          height={height}
+                          totalHeight={totalHeight}
+                          onDelete={deleteBlock}
+                        />
                       )
                     })}
 
@@ -261,6 +259,7 @@ export default function SchedulePage() {
                           lesson={lesson}
                           top={top}
                           height={height}
+                          totalHeight={totalHeight}
                           startStr={startStr}
                           onRefresh={loadWeek}
                         />
@@ -294,11 +293,15 @@ export default function SchedulePage() {
   )
 }
 
+function menuPosition(top: number, totalHeight: number): string {
+  return top > totalHeight / 2 ? 'bottom-full mb-1' : 'top-full mt-1'
+}
+
 function LessonBlock({
-  lesson, top, height, startStr, onRefresh
+  lesson, top, height, totalHeight, startStr, onRefresh
 }: {
   lesson: Lesson & { student: Student }
-  top: number; height: number; startStr: string
+  top: number; height: number; totalHeight: number; startStr: string
   onRefresh: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -339,7 +342,7 @@ function LessonBlock({
       {height >= 48 && lesson.is_trial && <div className="text-xs opacity-60">Пробное</div>}
 
       {menuOpen && (
-        <div className="absolute z-30 top-full right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-40" onClick={(e) => e.stopPropagation()}>
+        <div className={`absolute z-30 right-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-40 ${menuPosition(top, totalHeight)}`} onClick={(e) => e.stopPropagation()}>
           {[
             { status: 'scheduled',   label: '🕐 Запланировано', cls: 'text-gray-700' },
             { status: 'completed',   label: '✓ Проведено',      cls: 'text-green-700' },
@@ -357,6 +360,62 @@ function LessonBlock({
           ))}
           <div className="border-t border-gray-100 mt-1 pt-1">
             <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BlockBlock({
+  block, top, height, totalHeight, onDelete
+}: {
+  block: DayBlock
+  top: number; height: number; totalHeight: number
+  onDelete: (id: string) => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const router = useRouter()
+  const isBreak = block.type === 'break'
+
+  return (
+    <div
+      className={`absolute left-0.5 right-0.5 rounded px-1.5 py-1 z-10 ${
+        isBreak ? 'bg-yellow-100 border border-yellow-200' : 'bg-orange-100 border border-orange-200'
+      }`}
+      style={{ top, height }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className={`absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded opacity-40 hover:opacity-100 hover:bg-black/10 z-20 ${isBreak ? 'text-yellow-800' : 'text-orange-800'}`}
+        onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
+      >⋮</button>
+
+      <div className={`text-xs font-medium truncate pr-5 ${isBreak ? 'text-yellow-700' : 'text-orange-700'}`}>{block.label}</div>
+      {height >= 32 && (
+        <div className={`text-xs truncate ${isBreak ? 'text-yellow-600' : 'text-orange-600'}`}>{block.startTime}–{block.endTime}</div>
+      )}
+
+      {menuOpen && (
+        <div
+          className={`absolute z-30 right-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 ${menuPosition(top, totalHeight)}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isBreak ? (
+            <button
+              onClick={() => { setMenuOpen(false); router.push('/settings') }}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >⚙️ Изменить в настройках</button>
+          ) : (
+            <>
+              <button
+                onClick={() => { setMenuOpen(false); if (block.id) onDelete(block.id) }}
+                className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+              >✕ Удалить{block.type === 'recurring' ? ' серию' : ''}</button>
+            </>
+          )}
+          <div className="border-t border-gray-100 mt-1 pt-1">
+            <button onClick={() => setMenuOpen(false)} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Закрыть</button>
           </div>
         </div>
       )}
